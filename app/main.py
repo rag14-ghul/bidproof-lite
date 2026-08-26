@@ -248,7 +248,7 @@ def get_run_report(request: Request, run_id: str, user: str):
 
     findings_data = db.get_findings(run_id)
     issues_data = db.get_issues(run_id)
-    steps_data = db.get_steps(run_id)
+    raw_steps = db.get_steps(run_id)
     signature = db.get_signature(run_id)
 
     if not findings_data:
@@ -270,7 +270,7 @@ def get_run_report(request: Request, run_id: str, user: str):
 
         findings = evaluate_rulebook(rulebook, all_extracted_fields)
         issues = evaluate_consistency(rulebook, all_extracted_fields)
-        steps_data = [
+        raw_steps = [
             {"step_num": 1, "phase": "1 INGEST", "title": "Load Rulebook", "details": "Loaded sample tender rulebook"},
             {"step_num": 2, "phase": "2 PARSE", "title": "Parsed Documents", "details": "Parsed bidder certificates"},
             {"step_num": 3, "phase": "3 EXTRACT", "title": "Regex Extract", "details": "Extracted Pan, GST, Experience fields"},
@@ -299,7 +299,20 @@ def get_run_report(request: Request, run_id: str, user: str):
             ) for i in issues_data
         ]
 
-    html_content = render_report_html(run_info, rulebook, findings, issues, steps_data, signature)
+    steps = []
+    for s in raw_steps:
+        if isinstance(s, dict):
+            steps.append(StepTrace(
+                run_id=run_id,
+                step_num=s.get("step_num", 1),
+                phase=s.get("phase", ""),
+                title=s.get("title", ""),
+                details=s.get("details", "")
+            ))
+        else:
+            steps.append(s)
+
+    html_content = render_report_html(run_info, rulebook, findings, issues, steps, signature)
     return HTMLResponse(html_content)
 
 def sign_run_report(request: Request, run_id: str, officer: str, designation: str, user: str):
