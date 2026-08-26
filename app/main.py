@@ -6,7 +6,6 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request, Form, File, UploadFile, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.auth import hash_password, verify_password, get_current_user, login_required
@@ -26,7 +25,6 @@ from app.render.report import render_report_html
 from app.templates_inline import jinja_env
 
 app = FastAPI(title=settings.APP_NAME)
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -62,13 +60,15 @@ def login_action(request: Request, username: str = Form(...), password: str = Fo
     if not user or not verify_password(password, user["pass_hash"]):
         return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=status.HTTP_303_SEE_OTHER)
     
-    request.session["user"] = username
-    return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(key="bidproof_user", value=username, httponly=True)
+    return response
 
 @app.get("/logout")
 def logout_action(request: Request):
-    request.session.clear()
-    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(key="bidproof_user")
+    return response
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(request: Request, user: str = Depends(login_required)):
