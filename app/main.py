@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader
 from app.config import settings
 from app.auth import hash_password, verify_password, get_current_user, login_required
 from app.store import DataStore
-from app.models import Rulebook, StepTrace
+from app.models import Rulebook, StepTrace, Finding, ConsistencyIssue, ExtractedField
 from app.rulebook import load_rulebook
 from app.rulebook_draft import extract_text_from_tender, generate_fallback_draft, freeze_rulebook
 from app.engine.trace import StepTraceSink
@@ -31,16 +31,20 @@ app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates_dir = BASE_DIR / "templates"
-static_dir = BASE_DIR / "static"
-static_dir.mkdir(parents=True, exist_ok=True)
-
-app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 jinja_env = Environment(loader=FileSystemLoader(str(templates_dir)))
 
-db = DataStore()
+_db_instance: Optional[DataStore] = None
 
-if not db.get_user("officer"):
-    db.insert_user("officer", hash_password(settings.BIDPROOF_DEMO_PASSWORD), role="officer")
+def get_db() -> DataStore:
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = DataStore()
+        try:
+            if not _db_instance.get_user("officer"):
+                _db_instance.insert_user("officer", hash_password(settings.BIDPROOF_DEMO_PASSWORD), role="officer")
+        except Exception:
+            pass
+    return _db_instance
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: Optional[str] = None):
@@ -49,6 +53,7 @@ def login_page(request: Request, error: Optional[str] = None):
 
 @app.post("/login")
 def login_action(request: Request, username: str = Form(...), password: str = Form(...)):
+    db = get_db()
     user = db.get_user(username)
     if not user or not verify_password(password, user["pass_hash"]):
         return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=status.HTTP_303_SEE_OTHER)
@@ -63,6 +68,7 @@ def logout_action(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page(request: Request, user: str = Depends(login_required)):
+    db = get_db()
     runs = db.get_runs()
     template = jinja_env.get_template("dashboard.html")
     return HTMLResponse(template.render(user=user, runs=runs))
@@ -104,6 +110,7 @@ def freeze_rulebook_action(
     draft_json: str = Form(...),
     user: str = Depends(login_required)
 ):
+    db = get_db()
     draft_dict = json.loads(draft_json)
     rb_obj, yaml_str = freeze_rulebook(draft_dict, officer_id=user)
     
@@ -123,6 +130,7 @@ def freeze_rulebook_action(
 
 @app.get("/runs/new", response_class=HTMLResponse)
 def new_run_page(request: Request, user: str = Depends(login_required)):
+    db = get_db()
     with db.get_connection() as conn:
         rows = conn.cursor().execute("SELECT id, name, tender_id FROM rulebooks").fetchall()
         frozen_rulebooks = [dict(r) for r in rows]
@@ -138,6 +146,7 @@ async def execute_new_run(
     files: List[UploadFile] = File(...),
     user: str = Depends(login_required)
 ):
+    db = get_db()
     run_id = f"run_{uuid.uuid4().hex[:8]}"
     trace_sink = StepTraceSink(run_id=run_id)
 
@@ -229,6 +238,7 @@ async def execute_new_run(
 
 @app.get("/runs/{run_id}", response_class=HTMLResponse)
 def get_run_report(request: Request, run_id: str, user: str = Depends(login_required)):
+    db = get_db()
     run_info = db.get_run(run_id)
     if not run_info:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -275,5 +285,6 @@ def sign_run_report(
     designation: str = Form(...),
     user: str = Depends(login_required)
 ):
+    db = get_db()
     db.insert_signature(run_id, officer, designation)
     return RedirectResponse(url=f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
