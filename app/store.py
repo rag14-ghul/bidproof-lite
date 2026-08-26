@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -9,8 +10,12 @@ from app.models import StepTrace, ExtractedField, Finding, ConsistencyIssue, Sig
 
 class DataStore:
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or settings.DB_PATH
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self.db_path = db_path or os.getenv("DB_PATH") or settings.DB_PATH
+        try:
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self.db_path = "/tmp/bidproof.db"
+            Path("/tmp").mkdir(parents=True, exist_ok=True)
         self.init_db()
 
     def get_connection(self) -> sqlite3.Connection:
