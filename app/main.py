@@ -45,21 +45,25 @@ def get_db() -> DataStore:
 
 async def get_form_data(request: Request) -> Dict[str, Any]:
     try:
+        body = await request.body()
+        if body:
+            parsed = urllib.parse.parse_qs(body.decode("utf-8", errors="ignore"))
+            if parsed:
+                res = {}
+                for k, v in parsed.items():
+                    res[k] = v[0] if len(v) == 1 else v
+                return res
+    except Exception:
+        pass
+
+    try:
         form = await request.form()
         if form:
             return dict(form)
     except Exception:
         pass
     
-    try:
-        body = await request.body()
-        parsed = urllib.parse.parse_qs(body.decode("utf-8", errors="ignore"))
-        res = {}
-        for k, v in parsed.items():
-            res[k] = v[0] if len(v) == 1 else v
-        return res
-    except Exception:
-        return {}
+    return {}
 
 def login_page(request: Request, error: Optional[str] = None):
     template = jinja_env.get_template("login.html")
