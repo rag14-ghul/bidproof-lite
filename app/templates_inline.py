@@ -172,10 +172,10 @@ TEMPLATES = {
     <div class="card">
         <h3>2. Review & Freeze Rulebook (Officer Gate)</h3>
         <p style="color:#94a3b8; margin: 10px 0;">Rulebook name: <strong>{{ draft.meta.name }}</strong> (Tender: {{ draft.meta.tender_id }})</p>
-        <pre style="background:#0f172a; padding:16px; border-radius:8px; color:#38bdf8; max-height:300px; overflow:auto;">{{ draft_json }}</pre>
+        <pre style="background:#0f172a; padding:16px; border-radius:8px; color:#38bdf8; max-height:300px; overflow:auto;">{{ draft_json | safe }}</pre>
 
         <form action="/rulebook/freeze" method="POST" style="margin-top:20px;">
-            <textarea name="draft_json" style="display:none;">{{ draft_json }}</textarea>
+            <textarea name="draft_json" style="display:none;">{{ draft_json | safe }}</textarea>
             <button type="submit" class="btn btn-success">🔒 Confirm & Freeze Rulebook SHA-256</button>
         </form>
     </div>
