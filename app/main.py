@@ -274,20 +274,15 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def vercel_universal_router(request: Request, full_path: str = ""):
     try:
-        req_path = request.scope.get("path") or full_path or "/"
-        if req_path.startswith("/api/index.py"):
-            req_path = req_path[13:] or "/"
-        elif req_path.startswith("/api/index"):
-            req_path = req_path[10:] or "/"
-            
-        clean_path = req_path.strip("/")
+        raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or request.scope.get("path") or full_path or "/"
+        clean_path = raw_path.replace("/api/index.py", "").replace("/api/index", "").replace("api/index.py", "").replace("api/index", "").strip("/")
 
         if not clean_path or clean_path == "login":
             if request.method == "POST":
                 form = await get_form_data(request)
                 return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
             user = get_current_user(request)
-            if user:
+            if user and not clean_path:
                 return RedirectResponse(url="/dashboard")
             return login_page(request)
 
