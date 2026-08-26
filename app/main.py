@@ -65,6 +65,19 @@ async def get_form_data(request: Request) -> Dict[str, Any]:
     
     return {}
 
+@app.middleware("http")
+async def fix_vercel_path_middleware(request: Request, call_next):
+    forwarded_uri = request.headers.get("x-forwarded-uri") or request.headers.get("x-invoke-path")
+    if forwarded_uri:
+        request.scope["path"] = forwarded_uri.split("?")[0]
+    elif request.scope["path"].startswith("/api/index.py"):
+        request.scope["path"] = request.scope["path"].replace("/api/index.py", "") or "/"
+    elif request.scope["path"].startswith("/api/index"):
+        request.scope["path"] = request.scope["path"].replace("/api/index", "") or "/"
+    
+    response = await call_next(request)
+    return response
+
 def login_page(request: Request, error: Optional[str] = None):
     template = jinja_env.get_template("login.html")
     return HTMLResponse(template.render(error=error))
@@ -320,68 +333,66 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
     db.insert_signature(run_id, officer, designation)
     return RedirectResponse(url=f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
-@app.api_route("/{full_path:path}", methods=["GET", "POST"])
-async def vercel_universal_router(request: Request, full_path: str = ""):
-    try:
-        target_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-invoke-path") or full_path or "/"
-        clean_path = target_path.split("?")[0].strip("/")
-        if clean_path.startswith("api/index"):
-            clean_path = ""
+@app.get("/")
+@app.get("/login")
+def login_page_route(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/dashboard")
+    return login_page(request)
 
-        if clean_path == "debug":
-            info = {
-                "headers": dict(request.headers),
-                "cookies": request.cookies,
-                "target_path": target_path,
-                "clean_path": clean_path
-            }
-            return HTMLResponse(content=f"<pre>{json.dumps(info, indent=2)}</pre>")
+@app.post("/login")
+async def login_action_route(request: Request):
+    form = await get_form_data(request)
+    return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
 
-        if not clean_path or clean_path == "login":
-            if request.method == "POST":
-                form = await get_form_data(request)
-                return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
-            user = get_current_user(request)
-            if user and not clean_path:
-                return RedirectResponse(url="/dashboard")
-            return login_page(request)
+@app.get("/logout")
+def logout_action_route(request: Request):
+    return logout_action(request)
 
-        elif clean_path == "logout":
-            return logout_action(request)
+@app.get("/dashboard")
+def dashboard_page_route(request: Request):
+    user = get_current_user(request) or "officer"
+    return dashboard_page(request, user=user)
 
-        user = get_current_user(request) or "officer"
+@app.get("/rulebook/draft")
+def rulebook_draft_page_route(request: Request):
+    user = get_current_user(request) or "officer"
+    return rulebook_draft_page(request, user=user)
 
-        if clean_path == "dashboard":
-            return dashboard_page(request, user=user)
+@app.post("/rulebook/draft")
+async def create_rulebook_draft_route(request: Request):
+    user = get_current_user(request) or "officer"
+    form = await get_form_data(request)
+    file = form.get("file")
+    return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
 
-        elif clean_path == "rulebook/draft":
-            if request.method == "POST":
-                form = await get_form_data(request)
-                file = form.get("file")
-                return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
-            return rulebook_draft_page(request, user=user)
+@app.post("/rulebook/freeze")
+async def freeze_rulebook_route(request: Request):
+    user = get_current_user(request) or "officer"
+    form = await get_form_data(request)
+    return freeze_rulebook_action(request, draft_json=str(form.get("draft_json", "")), user=user)
 
-        elif clean_path == "rulebook/freeze":
-            form = await get_form_data(request)
-            return freeze_rulebook_action(request, draft_json=str(form.get("draft_json", "")), user=user)
+@app.get("/runs/new")
+def new_run_page_route(request: Request):
+    user = get_current_user(request) or "officer"
+    return new_run_page(request, user=user)
 
-        elif clean_path == "runs/new":
-            if request.method == "POST":
-                form = await get_form_data(request)
-                files = form.get("files")
-                file_list = files if isinstance(files, list) else ([files] if files else [])
-                return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=file_list, user=user)
-            return new_run_page(request, user=user)
+@app.post("/runs/new")
+async def execute_new_run_route(request: Request):
+    user = get_current_user(request) or "officer"
+    form = await get_form_data(request)
+    files = form.get("files")
+    file_list = files if isinstance(files, list) else ([files] if files else [])
+    return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=file_list, user=user)
 
-        elif clean_path.startswith("runs/"):
-            parts = clean_path.split("/")
-            run_id = parts[1]
-            if len(parts) > 2 and parts[2] == "sign":
-                form = await get_form_data(request)
-                return sign_run_report(request, run_id=run_id, officer=str(form.get("officer", "")), designation=str(form.get("designation", "")), user=user)
-            return get_run_report(request, run_id=run_id, user=user)
+@app.get("/runs/{run_id}")
+def get_run_report_route(request: Request, run_id: str):
+    user = get_current_user(request) or "officer"
+    return get_run_report(request, run_id=run_id, user=user)
 
-        return login_page(request)
-    except Exception as e:
-        err_msg = f"ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}"
-        return HTMLResponse(content=f"<pre>{err_msg}</pre>", status_code=500)
+@app.post("/runs/{run_id}/sign")
+async def sign_run_report_route(request: Request, run_id: str):
+    user = get_current_user(request) or "officer"
+    form = await get_form_data(request)
+    return sign_run_report(request, run_id=run_id, officer=str(form.get("officer", "")), designation=str(form.get("designation", "")), user=user)
