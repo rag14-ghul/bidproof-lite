@@ -1,7 +1,8 @@
 import json
 import uuid
+import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 
 from fastapi import FastAPI, Request, Form, File, UploadFile, Depends, HTTPException, status
@@ -249,52 +250,56 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def vercel_universal_router(request: Request, full_path: str = ""):
-    raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or full_path or "/"
-    clean_path = raw_path.replace("api/index.py", "").replace("api/index", "").strip("/")
-    
-    if not clean_path or clean_path == "login":
-        if request.method == "POST":
-            form = await request.form()
-            return login_action(request, username=form.get("username", ""), password=form.get("password", ""))
+    try:
+        raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or full_path or "/"
+        clean_path = raw_path.replace("api/index.py", "").replace("api/index", "").strip("/")
+        
+        if not clean_path or clean_path == "login":
+            if request.method == "POST":
+                form = await request.form()
+                return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
+            user = get_current_user(request)
+            if user and not clean_path:
+                return RedirectResponse(url="/dashboard")
+            return login_page(request)
+        
+        elif clean_path == "logout":
+            return logout_action(request)
+
         user = get_current_user(request)
-        if user and not clean_path:
-            return RedirectResponse(url="/dashboard")
+        if not user:
+            return RedirectResponse(url="/login")
+
+        if clean_path == "dashboard":
+            return dashboard_page(request, user=user)
+            
+        elif clean_path == "rulebook/draft":
+            if request.method == "POST":
+                form = await request.form()
+                file = form.get("file")
+                return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
+            return rulebook_draft_page(request, user=user)
+            
+        elif clean_path == "rulebook/freeze":
+            form = await request.form()
+            return freeze_rulebook_action(request, draft_json=str(form.get("draft_json", "")), user=user)
+            
+        elif clean_path == "runs/new":
+            if request.method == "POST":
+                form = await request.form()
+                files = form.getlist("files")
+                return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=files, user=user)
+            return new_run_page(request, user=user)
+            
+        elif clean_path.startswith("runs/"):
+            parts = clean_path.split("/")
+            run_id = parts[1]
+            if len(parts) > 2 and parts[2] == "sign":
+                form = await request.form()
+                return sign_run_report(request, run_id=run_id, officer=str(form.get("officer", "")), designation=str(form.get("designation", "")), user=user)
+            return get_run_report(request, run_id=run_id, user=user)
+
         return login_page(request)
-    
-    elif clean_path == "logout":
-        return logout_action(request)
-
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login")
-
-    if clean_path == "dashboard":
-        return dashboard_page(request, user=user)
-        
-    elif clean_path == "rulebook/draft":
-        if request.method == "POST":
-            form = await request.form()
-            file = form.get("file")
-            return await create_rulebook_draft(request, tender_id=form.get("tender_id", ""), tender_name=form.get("tender_name", ""), file=file, user=user)
-        return rulebook_draft_page(request, user=user)
-        
-    elif clean_path == "rulebook/freeze":
-        form = await request.form()
-        return freeze_rulebook_action(request, draft_json=form.get("draft_json", ""), user=user)
-        
-    elif clean_path == "runs/new":
-        if request.method == "POST":
-            form = await request.form()
-            files = form.getlist("files")
-            return await execute_new_run(request, tender_name=form.get("tender_name", ""), rulebook_source=form.get("rulebook_source", ""), files=files, user=user)
-        return new_run_page(request, user=user)
-        
-    elif clean_path.startswith("runs/"):
-        parts = clean_path.split("/")
-        run_id = parts[1]
-        if len(parts) > 2 and parts[2] == "sign":
-            form = await request.form()
-            return sign_run_report(request, run_id=run_id, officer=form.get("officer", ""), designation=form.get("designation", ""), user=user)
-        return get_run_report(request, run_id=run_id, user=user)
-
-    return login_page(request)
+    except Exception as e:
+        err_msg = f"ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}"
+        return HTMLResponse(content=f"<pre>{err_msg}</pre>", status_code=500)
