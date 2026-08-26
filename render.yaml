@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: bidproof-lite
+    env: python
+    buildCommand: pip install -r requirements.txt && python seed/make_docs.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: LLM_MODE
+        value: deterministic
+      - key: SECRET_KEY
+        generateValue: true

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BidProof Evaluation Report - {{ run.id }}</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; color: #222; background: #fafafa; }
+        .container { max-width: 1000px; margin: 0 auto; background: #fff; padding: 30px; border: 1px solid #ddd; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        h1, h2, h3 { color: #111; }
+        .header-box { background: #f0f4f8; padding: 20px; border-left: 5px solid #2b6cb0; margin-bottom: 25px; }
+        .summary-box { display: flex; gap: 15px; margin-bottom: 25px; }
+        .stat-card { flex: 1; padding: 15px; background: #edf2f7; border-radius: 6px; text-align: center; }
+        .stat-card .num { font-size: 24px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 14px; }
+        th, td { border: 1px solid #cbd5e0; padding: 10px; text-align: left; }
+        th { background: #edf2f7; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; display: inline-block; }
+        .badge-COMPLIANT { background: #c6f6d5; color: #22543d; }
+        .badge-NON_COMPLIANT { background: #fed7d7; color: #742a2a; }
+        .badge-UNVERIFIABLE { background: #e2e8f0; color: #4a5568; }
+        .badge-AMBIGUOUS { background: #feebc8; color: #744210; }
+        .badge-CONSISTENT { background: #c6f6d5; color: #22543d; }
+        .badge-CONTRADICTION { background: #fed7d7; color: #742a2a; }
+        .badge-CANNOT_COMPARE { background: #e2e8f0; color: #4a5568; }
+        .quote { font-family: monospace; background: #f7fafc; padding: 2px 5px; border: 1px solid #e2e8f0; border-radius: 3px; font-size: 13px; }
+        .sign-block { margin-top: 40px; padding: 20px; border: 2px dashed #a0aec0; background: #f7fafc; border-radius: 6px; }
+        @media print {
+            body { margin: 0; background: white; }
+            .container { border: none; box-shadow: none; max-width: 100%; }
+            .no-print { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header-box">
+        <h1>BidProof Evaluation Report</h1>
+        <p><strong>Tender Name:</strong> {{ run.tender_name }}</p>
+        <p><strong>Rulebook:</strong> {{ run.rulebook_name }} (SHA-256: <code>{{ run.rulebook_sha[:12] }}...</code>)</p>
+        <p><strong>Run Timestamp:</strong> {{ run.run_at }} | <strong>Officer:</strong> {{ run.officer }}</p>
+    </div>
+
+    <h2>1. Verdict Summary</h2>
+    <div class="summary-box">
+        <div class="stat-card"><div class="num">{{ summary.compliant }}</div>Compliant Rules</div>
+        <div class="stat-card"><div class="num">{{ summary.non_compliant }}</div>Non-Compliant Rules</div>
+        <div class="stat-card"><div class="num">{{ summary.unverifiable }}</div>Unverifiable Rules</div>
+        <div class="stat-card"><div class="num">{{ summary.ambiguous }}</div>Ambiguous / Review</div>
+        <div class="stat-card"><div class="num">{{ summary.contradiction }}</div>Contradictions</div>
+    </div>
+
+    <h2>2. Rule Findings</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Rule ID</th>
+                <th>Statement & Clause</th>
+                <th>Status</th>
+                <th>Extracted Value & Evidence</th>
+                <th>Reasoning</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in findings %}
+            <tr>
+                <td><strong>{{ f.rule_id }}</strong></td>
+                <td>{{ f.statement }}<br><small style="color: #718096;">Basis: {{ f.legal_basis }}</small></td>
+                <td><span class="badge badge-{{ f.status }}">{{ f.status }}</span></td>
+                <td>
+                    <strong>Found:</strong> {{ f.value or '—' }}<br>
+                    {% for ev in f.evidence %}
+                        <div style="margin-top: 4px;">
+                            <span class="quote">{{ ev.doc }} p{{ ev.page }}: "{{ ev.source_text }}"</span>
+                        </div>
+                    {% endfor %}
+                </td>
+                <td>{{ f.reason }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>3. Cross-Document Consistency Checks</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Check ID</th>
+                <th>Description</th>
+                <th>Verdict</th>
+                <th>Document A vs Document B</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for issue in issues %}
+            <tr>
+                <td><strong>{{ issue.check_id }}</strong></td>
+                <td>{{ issue.description }}</td>
+                <td><span class="badge badge-{{ issue.verdict }}">{{ issue.verdict }}</span></td>
+                <td>
+                    Left: {{ issue.left.value or '—' }} ({{ issue.left.doc or '—' }})<br>
+                    Right: {{ issue.right.value or '—' }} ({{ issue.right.doc or '—' }})
+                </td>
+                <td>{{ issue.reason }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>4. Methodology Appendix (Audit StepTrace)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Timestamp</th>
+                <th>Stage</th>
+                <th>Action</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for step in steps %}
+            <tr>
+                <td>{{ step.seq }}</td>
+                <td><small>{{ step.ts }}</small></td>
+                <td><strong>{{ step.stage }}</strong></td>
+                <td>{{ step.action }}</td>
+                <td>{{ step.detail }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>5. Officer Sign-off Block</h2>
+    <div class="sign-block">
+        {% if signature %}
+            <p style="color: #276749; font-weight: bold; font-size: 16px;">✓ SIGNED & AUDITED</p>
+            <p><strong>Signed by:</strong> {{ signature.officer }}</p>
+            <p><strong>Designation:</strong> {{ signature.designation }}</p>
+            <p><strong>Timestamp:</strong> {{ signature.signed_at }}</p>
+        {% else %}
+            <p style="color: #c53030;"><strong>Status:</strong> Pending Officer Signature</p>
+            <form action="/runs/{{ run.id }}/sign" method="POST" class="no-print" style="margin-top: 15px;">
+                <input type="text" name="officer" value="{{ run.officer }}" required style="padding: 8px; width: 200px;">
+                <input type="text" name="designation" value="Procurement Officer" required style="padding: 8px; width: 200px;">
+                <button type="submit" style="padding: 8px 15px; background: #2b6cb0; color: white; border: none; border-radius: 4px; cursor: pointer;">Sign & Confirm Verdict</button>
+            </form>
+        {% endif %}
+    </div>
+
+    <div class="no-print" style="margin-top: 25px; text-align: right;">
+        <button onclick="window.print()" style="padding: 10px 20px; background: #2d3748; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Export PDF (Print)</button>
+    </div>
+</div>
+</body>
+</html>
