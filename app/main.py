@@ -6,9 +6,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Request, Form, File, UploadFile, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from jinja2 import Environment, FileSystemLoader
 
 from app.config import settings
 from app.auth import hash_password, verify_password, get_current_user, login_required
@@ -25,13 +23,12 @@ from app.extract.classify import classify_document
 from app.extract.fields import extract_fields_with_regex
 from app.extract.llm import extract_missing_fields_with_llm
 from app.render.report import render_report_html
+from app.templates_inline import jinja_env
 
 app = FastAPI(title=settings.APP_NAME)
 app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 BASE_DIR = Path(__file__).resolve().parent
-templates_dir = BASE_DIR / "templates"
-jinja_env = Environment(loader=FileSystemLoader(str(templates_dir)))
 
 _db_instance: Optional[DataStore] = None
 
@@ -45,6 +42,13 @@ def get_db() -> DataStore:
         except Exception:
             pass
     return _db_instance
+
+@app.get("/", response_class=HTMLResponse)
+def root_page(request: Request):
+    user = get_current_user(request)
+    if user:
+        return RedirectResponse(url="/dashboard")
+    return RedirectResponse(url="/login")
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: Optional[str] = None):
@@ -72,13 +76,6 @@ def dashboard_page(request: Request, user: str = Depends(login_required)):
     runs = db.get_runs()
     template = jinja_env.get_template("dashboard.html")
     return HTMLResponse(template.render(user=user, runs=runs))
-
-@app.get("/", response_class=HTMLResponse)
-def root_page(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard")
-    return RedirectResponse(url="/login")
 
 @app.get("/rulebook/draft", response_class=HTMLResponse)
 def rulebook_draft_page(request: Request, user: str = Depends(login_required)):
