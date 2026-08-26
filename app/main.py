@@ -339,9 +339,6 @@ async def login_route(request: Request):
     if request.method == "POST":
         form = await get_form_data(request)
         return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard")
     return login_page(request)
 
 @app.api_route("/logout", methods=["GET", "POST"])
