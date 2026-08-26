@@ -26,6 +26,16 @@ from app.templates_inline import jinja_env
 
 app = FastAPI(title=settings.APP_NAME)
 
+@app.middleware("http")
+async def vercel_path_rewrite_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/index.py"):
+        request.scope["path"] = path[13:] if len(path) > 13 else "/"
+    elif path.startswith("/api/index"):
+        request.scope["path"] = path[10:] if len(path) > 10 else "/"
+    response = await call_next(request)
+    return response
+
 BASE_DIR = Path(__file__).resolve().parent
 
 _db_instance: Optional[DataStore] = None
