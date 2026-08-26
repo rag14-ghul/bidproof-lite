@@ -175,7 +175,7 @@ async def execute_new_run(request: Request, tender_name: str, rulebook_source: s
             field_id = f"fld_{uuid.uuid4().hex[:6]}"
             db.insert_field(field_id, run_id, doc_id, field_obj)
             all_extracted_fields.append(field_obj)
-            trace_sink.add("3 EXTRACT", "Regex Extract", f"{field_obj.key} ← {field_obj.value} ({fn} p{field_obj.page})")
+            trace_sink.add("3 EXTRACT", "Regex Extract", f"{field_obj.key} ← {field_obj.value} ({field_obj.page})")
 
         extracted_keys = {f.key for f in regex_fields}
         missing_specs = [spec for spec in rulebook.fields if spec.key not in extracted_keys]
@@ -251,18 +251,29 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def vercel_universal_router(request: Request, full_path: str = ""):
     try:
-        raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or full_path or "/"
-        clean_path = raw_path.replace("api/index.py", "").replace("api/index", "").strip("/")
-        
-        if not clean_path or clean_path == "login":
+        req_path = request.scope.get("path") or full_path or "/"
+        if req_path.startswith("/api/index.py"):
+            req_path = req_path[13:] or "/"
+        elif req_path.startswith("/api/index"):
+            req_path = req_path[10:] or "/"
+            
+        clean_path = req_path.strip("/")
+
+        if not clean_path:
+            user = get_current_user(request)
+            if user:
+                return RedirectResponse(url="/dashboard")
+            return login_page(request)
+
+        elif clean_path == "login":
             if request.method == "POST":
                 form = await request.form()
                 return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
             user = get_current_user(request)
-            if user and not clean_path:
+            if user:
                 return RedirectResponse(url="/dashboard")
             return login_page(request)
-        
+
         elif clean_path == "logout":
             return logout_action(request)
 
@@ -272,25 +283,25 @@ async def vercel_universal_router(request: Request, full_path: str = ""):
 
         if clean_path == "dashboard":
             return dashboard_page(request, user=user)
-            
+
         elif clean_path == "rulebook/draft":
             if request.method == "POST":
                 form = await request.form()
                 file = form.get("file")
                 return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
             return rulebook_draft_page(request, user=user)
-            
+
         elif clean_path == "rulebook/freeze":
             form = await request.form()
             return freeze_rulebook_action(request, draft_json=str(form.get("draft_json", "")), user=user)
-            
+
         elif clean_path == "runs/new":
             if request.method == "POST":
                 form = await request.form()
                 files = form.getlist("files")
                 return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=files, user=user)
             return new_run_page(request, user=user)
-            
+
         elif clean_path.startswith("runs/"):
             parts = clean_path.split("/")
             run_id = parts[1]
