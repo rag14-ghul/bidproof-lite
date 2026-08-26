@@ -26,21 +26,6 @@ from app.templates_inline import jinja_env
 
 app = FastAPI(title=settings.APP_NAME)
 
-@app.middleware("http")
-async def vercel_path_rewrite_middleware(request: Request, call_next):
-    forwarded_uri = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path")
-    if forwarded_uri and forwarded_uri != "/api/index.py" and forwarded_uri != "/api/index":
-        request.scope["path"] = forwarded_uri
-    else:
-        raw_path = request.scope.get("path", "")
-        if raw_path.startswith("/api/index.py"):
-            request.scope["path"] = raw_path[13:] or "/"
-        elif raw_path.startswith("/api/index"):
-            request.scope["path"] = raw_path[10:] or "/"
-    
-    response = await call_next(request)
-    return response
-
 BASE_DIR = Path(__file__).resolve().parent
 
 _db_instance: Optional[DataStore] = None
@@ -56,57 +41,38 @@ def get_db() -> DataStore:
             pass
     return _db_instance
 
-@app.get("/", response_class=HTMLResponse)
-def root_page(request: Request):
-    user = get_current_user(request)
-    if user:
-        return RedirectResponse(url="/dashboard")
-    return RedirectResponse(url="/login")
-
-@app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: Optional[str] = None):
     template = jinja_env.get_template("login.html")
     return HTMLResponse(template.render(error=error))
 
-@app.post("/login")
-def login_action(request: Request, username: str = Form(...), password: str = Form(...)):
+def login_action(request: Request, username: str, password: str):
     db = get_db()
     user = db.get_user(username)
     if not user or not verify_password(password, user["pass_hash"]):
-        return RedirectResponse(url="/login?error=Invalid+username+or+password", status_code=status.HTTP_303_SEE_OTHER)
+        return login_page(request, error="Invalid username or password")
     
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(key="bidproof_user", value=username, httponly=True)
     return response
 
-@app.get("/logout")
 def logout_action(request: Request):
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(key="bidproof_user")
     return response
 
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page(request: Request, user: str = Depends(login_required)):
+def dashboard_page(request: Request, user: str):
     db = get_db()
     runs = db.get_runs()
     template = jinja_env.get_template("dashboard.html")
     return HTMLResponse(template.render(user=user, runs=runs))
 
-@app.get("/rulebook/draft", response_class=HTMLResponse)
-def rulebook_draft_page(request: Request, user: str = Depends(login_required)):
+def rulebook_draft_page(request: Request, user: str):
     template = jinja_env.get_template("rulebook_draft.html")
     return HTMLResponse(template.render(user=user, draft=None))
 
-@app.post("/rulebook/draft", response_class=HTMLResponse)
-async def create_rulebook_draft(
-    request: Request,
-    tender_id: str = Form(...),
-    tender_name: str = Form(...),
-    file: UploadFile = File(...),
-    user: str = Depends(login_required)
-):
-    content = await file.read()
-    temp_path, doc_sha = save_and_hash_upload(f"draft_{uuid.uuid4().hex[:6]}", file.filename, content)
+async def create_rulebook_draft(request: Request, tender_id: str, tender_name: str, file: Any, user: str):
+    content = await file.read() if hasattr(file, 'read') else b""
+    temp_path, doc_sha = save_and_hash_upload(f"draft_{uuid.uuid4().hex[:6]}", getattr(file, 'filename', 'tender.pdf'), content)
     
     draft_dict = generate_fallback_draft(tender_id, tender_name, doc_sha)
     template = jinja_env.get_template("rulebook_draft.html")
@@ -116,12 +82,7 @@ async def create_rulebook_draft(
         draft_json=json.dumps(draft_dict)
     ))
 
-@app.post("/rulebook/freeze")
-def freeze_rulebook_action(
-    request: Request,
-    draft_json: str = Form(...),
-    user: str = Depends(login_required)
-):
+def freeze_rulebook_action(request: Request, draft_json: str, user: str):
     db = get_db()
     draft_dict = json.loads(draft_json)
     rb_obj, yaml_str = freeze_rulebook(draft_dict, officer_id=user)
@@ -140,8 +101,7 @@ def freeze_rulebook_action(
     )
     return RedirectResponse(url="/runs/new", status_code=status.HTTP_303_SEE_OTHER)
 
-@app.get("/runs/new", response_class=HTMLResponse)
-def new_run_page(request: Request, user: str = Depends(login_required)):
+def new_run_page(request: Request, user: str):
     db = get_db()
     with db.get_connection() as conn:
         rows = conn.cursor().execute("SELECT id, name, tender_id FROM rulebooks").fetchall()
@@ -150,14 +110,7 @@ def new_run_page(request: Request, user: str = Depends(login_required)):
     template = jinja_env.get_template("new_run.html")
     return HTMLResponse(template.render(user=user, frozen_rulebooks=frozen_rulebooks))
 
-@app.post("/runs/new")
-async def execute_new_run(
-    request: Request,
-    tender_name: str = Form(...),
-    rulebook_source: str = Form(...),
-    files: List[UploadFile] = File(...),
-    user: str = Depends(login_required)
-):
+async def execute_new_run(request: Request, tender_name: str, rulebook_source: str, files: List[Any], user: str):
     db = get_db()
     run_id = f"run_{uuid.uuid4().hex[:8]}"
     trace_sink = StepTraceSink(run_id=run_id)
@@ -180,11 +133,12 @@ async def execute_new_run(
 
     uploaded_files_data = []
     for f in files:
-        if f.filename:
-            content = await f.read()
+        fn = getattr(f, 'filename', '')
+        if fn:
+            content = await f.read() if hasattr(f, 'read') else b""
             if content:
-                saved_path, file_sha = save_and_hash_upload(run_id, f.filename, content)
-                uploaded_files_data.append((f.filename, saved_path, file_sha))
+                saved_path, file_sha = save_and_hash_upload(run_id, fn, content)
+                uploaded_files_data.append((fn, saved_path, file_sha))
 
     if not uploaded_files_data:
         seed_dir = Path("/tmp/seed/docs") if Path("/tmp/seed/docs").exists() else (BASE_DIR.parent / "seed" / "docs")
@@ -248,8 +202,7 @@ async def execute_new_run(
 
     return RedirectResponse(url=f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
-@app.get("/runs/{run_id}", response_class=HTMLResponse)
-def get_run_report(request: Request, run_id: str, user: str = Depends(login_required)):
+def get_run_report(request: Request, run_id: str, user: str):
     db = get_db()
     run_info = db.get_run(run_id)
     if not run_info:
@@ -289,14 +242,59 @@ def get_run_report(request: Request, run_id: str, user: str = Depends(login_requ
     html_content = render_report_html(run_info, rulebook, findings, issues, steps_data, signature)
     return HTMLResponse(html_content)
 
-@app.post("/runs/{run_id}/sign")
-def sign_run_report(
-    request: Request,
-    run_id: str,
-    officer: str = Form(...),
-    designation: str = Form(...),
-    user: str = Depends(login_required)
-):
+def sign_run_report(request: Request, run_id: str, officer: str, designation: str, user: str):
     db = get_db()
     db.insert_signature(run_id, officer, designation)
     return RedirectResponse(url=f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.api_route("/{full_path:path}", methods=["GET", "POST"])
+async def vercel_universal_router(request: Request, full_path: str = ""):
+    raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or full_path or "/"
+    clean_path = raw_path.replace("api/index.py", "").replace("api/index", "").strip("/")
+    
+    if not clean_path or clean_path == "login":
+        if request.method == "POST":
+            form = await request.form()
+            return login_action(request, username=form.get("username", ""), password=form.get("password", ""))
+        user = get_current_user(request)
+        if user and not clean_path:
+            return RedirectResponse(url="/dashboard")
+        return login_page(request)
+    
+    elif clean_path == "logout":
+        return logout_action(request)
+
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+
+    if clean_path == "dashboard":
+        return dashboard_page(request, user=user)
+        
+    elif clean_path == "rulebook/draft":
+        if request.method == "POST":
+            form = await request.form()
+            file = form.get("file")
+            return await create_rulebook_draft(request, tender_id=form.get("tender_id", ""), tender_name=form.get("tender_name", ""), file=file, user=user)
+        return rulebook_draft_page(request, user=user)
+        
+    elif clean_path == "rulebook/freeze":
+        form = await request.form()
+        return freeze_rulebook_action(request, draft_json=form.get("draft_json", ""), user=user)
+        
+    elif clean_path == "runs/new":
+        if request.method == "POST":
+            form = await request.form()
+            files = form.getlist("files")
+            return await execute_new_run(request, tender_name=form.get("tender_name", ""), rulebook_source=form.get("rulebook_source", ""), files=files, user=user)
+        return new_run_page(request, user=user)
+        
+    elif clean_path.startswith("runs/"):
+        parts = clean_path.split("/")
+        run_id = parts[1]
+        if len(parts) > 2 and parts[2] == "sign":
+            form = await request.form()
+            return sign_run_report(request, run_id=run_id, officer=form.get("officer", ""), designation=form.get("designation", ""), user=user)
+        return get_run_report(request, run_id=run_id, user=user)
+
+    return login_page(request)
