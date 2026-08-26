@@ -186,23 +186,28 @@ async def create_rulebook_draft(request: Request, tender_id: str, tender_name: s
         return HTMLResponse(content=f"<pre>DRAFT ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}</pre>", status_code=500)
 
 def freeze_rulebook_action(request: Request, draft_json: str, user: str):
-    db = get_db()
-    draft_dict = json.loads(draft_json)
-    rb_obj, yaml_str = freeze_rulebook(draft_dict, officer_id=user)
-    
-    rulebook_id = f"rb_{uuid.uuid4().hex[:8]}"
-    db.insert_rulebook(
-        rulebook_id=rulebook_id,
-        name=rb_obj.meta.name,
-        version=rb_obj.meta.version,
-        tender_id=rb_obj.meta.tender_id,
-        bid_date=rb_obj.meta.bid_date,
-        yaml_content=yaml_str,
-        source_doc_sha=rb_obj.meta.source_doc_sha,
-        confirmed_by=rb_obj.meta.confirmed_by,
-        confirmed_at=rb_obj.meta.confirmed_at
-    )
-    return RedirectResponse(url="/runs/new", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        if not draft_json:
+            return HTMLResponse("<pre>FREEZE ERROR: Parameter 'draft_json' is empty</pre>", status_code=400)
+        db = get_db()
+        draft_dict = json.loads(draft_json)
+        rb_obj, yaml_str = freeze_rulebook(draft_dict, officer_id=user)
+        
+        rulebook_id = f"rb_{uuid.uuid4().hex[:8]}"
+        db.insert_rulebook(
+            rulebook_id=rulebook_id,
+            name=rb_obj.meta.name,
+            version=rb_obj.meta.version,
+            tender_id=rb_obj.meta.tender_id,
+            bid_date=rb_obj.meta.bid_date,
+            yaml_content=yaml_str,
+            source_doc_sha=rb_obj.meta.source_doc_sha,
+            confirmed_by=rb_obj.meta.confirmed_by,
+            confirmed_at=rb_obj.meta.confirmed_at
+        )
+        return RedirectResponse(url="/runs/new", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as e:
+        return HTMLResponse(content=f"<pre>FREEZE RULEBOOK ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}</pre>", status_code=500)
 
 def new_run_page(request: Request, user: str):
     db = get_db()
