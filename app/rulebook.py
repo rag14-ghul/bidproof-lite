@@ -18,12 +18,19 @@ def load_rulebook(source: Union[str, Path, Dict[str, Any]]) -> Rulebook:
         return parse_rulebook_dict(source)
     
     if isinstance(source, (str, Path)):
-        path = Path(source)
-        if path.is_file():
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+        s_str = str(source)
+        if "\n" in s_str or len(s_str) > 255:
+            data = yaml.safe_load(s_str)
         else:
-            data = yaml.safe_load(str(source))
+            try:
+                path = Path(s_str)
+                if path.is_file():
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                else:
+                    data = yaml.safe_load(s_str)
+            except Exception:
+                data = yaml.safe_load(s_str)
     else:
         raise ValueError(f"Invalid rulebook source type: {type(source)}")
         
