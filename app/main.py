@@ -67,9 +67,13 @@ async def get_form_data(request: Request) -> Dict[str, Any]:
 
 @app.middleware("http")
 async def fix_vercel_path_middleware(request: Request, call_next):
+    query_path = request.query_params.get("path")
     forwarded_uri = request.headers.get("x-forwarded-uri") or request.headers.get("x-invoke-path")
-    if forwarded_uri:
-        request.scope["path"] = forwarded_uri.split("?")[0]
+    
+    if query_path:
+        request.scope["path"] = "/" + query_path.lstrip("/")
+    elif forwarded_uri:
+        request.scope["path"] = "/" + forwarded_uri.split("?")[0].lstrip("/")
     elif request.scope["path"].startswith("/api/index.py"):
         request.scope["path"] = request.scope["path"].replace("/api/index.py", "") or "/"
     elif request.scope["path"].startswith("/api/index"):
