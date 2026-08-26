@@ -253,90 +253,93 @@ async def execute_new_run(request: Request, tender_name: str, rulebook_source: s
         return HTMLResponse(content=f"<pre>EXECUTE RUN ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}</pre>", status_code=500)
 
 def get_run_report(request: Request, run_id: str, user: str):
-    db = get_db()
-    run_info = db.get_run(run_id)
-    if not run_info:
-        run_info = {
-            "id": run_id,
-            "name": "SIH 2026 LIVE AUDIT DEMO - MERIDIAN ENVIRO",
-            "rulebook_name": "Sample Tender Rulebook",
-            "rulebook_sha": "sample_tender_sha256",
-            "officer": user,
-            "created_at": datetime.now().isoformat()
-        }
+    try:
+        db = get_db()
+        run_info = db.get_run(run_id)
+        if not run_info:
+            run_info = {
+                "id": run_id,
+                "name": "SIH 2026 LIVE AUDIT DEMO - MERIDIAN ENVIRO",
+                "rulebook_name": "Sample Tender Rulebook",
+                "rulebook_sha": "sample_tender_sha256",
+                "officer": user,
+                "created_at": datetime.now().isoformat()
+            }
 
-    seed_path = BASE_DIR.parent / "rulebooks" / "sample_tender.yaml"
-    yaml_content = db.get_rulebook_yaml(run_info["rulebook_sha"]) or (open(seed_path).read() if seed_path.exists() else "")
-    rulebook = load_rulebook(yaml_content)
+        seed_path = BASE_DIR.parent / "rulebooks" / "sample_tender.yaml"
+        yaml_content = db.get_rulebook_yaml(run_info["rulebook_sha"]) or (open(seed_path).read() if seed_path.exists() else "")
+        rulebook = load_rulebook(yaml_content)
 
-    findings_data = db.get_findings(run_id)
-    issues_data = db.get_issues(run_id)
-    raw_steps = db.get_steps(run_id)
-    signature = db.get_signature(run_id)
+        findings_data = db.get_findings(run_id)
+        issues_data = db.get_issues(run_id)
+        raw_steps = db.get_steps(run_id)
+        signature = db.get_signature(run_id)
 
-    if not findings_data:
-        all_extracted_fields = []
-        seed_dir = Path("/tmp/seed/docs") if Path("/tmp/seed/docs").exists() else (BASE_DIR.parent / "seed" / "docs")
-        seed_paths = [
-            ("pan_card.pdf", seed_dir / "pan_card.pdf"),
-            ("gst_certificate.pdf", seed_dir / "gst_certificate.pdf"),
-            ("udyam_certificate.pdf", seed_dir / "udyam_certificate.pdf"),
-            ("experience_certificate.pdf", seed_dir / "experience_certificate.pdf"),
-            ("bank_certificate.pdf", seed_dir / "bank_certificate.pdf"),
-            ("blacklisting_declaration.pdf", seed_dir / "blacklisting_declaration.pdf")
-        ]
-        for fn, sp in seed_paths:
-            if Path(sp).exists():
-                parsed = extract_pdf_pages(str(sp))
-                regex_fields = extract_fields_with_regex(rulebook.fields, fn, parsed["pages"])
-                all_extracted_fields.extend(regex_fields)
+        if not findings_data:
+            all_extracted_fields = []
+            seed_dir = Path("/tmp/seed/docs") if Path("/tmp/seed/docs").exists() else (BASE_DIR.parent / "seed" / "docs")
+            seed_paths = [
+                ("pan_card.pdf", seed_dir / "pan_card.pdf"),
+                ("gst_certificate.pdf", seed_dir / "gst_certificate.pdf"),
+                ("udyam_certificate.pdf", seed_dir / "udyam_certificate.pdf"),
+                ("experience_certificate.pdf", seed_dir / "experience_certificate.pdf"),
+                ("bank_certificate.pdf", seed_dir / "bank_certificate.pdf"),
+                ("blacklisting_declaration.pdf", seed_dir / "blacklisting_declaration.pdf")
+            ]
+            for fn, sp in seed_paths:
+                if Path(sp).exists():
+                    parsed = extract_pdf_pages(str(sp))
+                    regex_fields = extract_fields_with_regex(rulebook.fields, fn, parsed["pages"])
+                    all_extracted_fields.extend(regex_fields)
 
-        findings = evaluate_rulebook(rulebook, all_extracted_fields)
-        issues = evaluate_consistency(rulebook, all_extracted_fields)
-        raw_steps = [
-            {"step_num": 1, "phase": "1 INGEST", "title": "Load Rulebook", "details": "Loaded sample tender rulebook"},
-            {"step_num": 2, "phase": "2 PARSE", "title": "Parsed Documents", "details": "Parsed bidder certificates"},
-            {"step_num": 3, "phase": "3 EXTRACT", "title": "Regex Extract", "details": "Extracted Pan, GST, Experience fields"},
-            {"step_num": 4, "phase": "4 EVALUATE", "title": "Rule Finding", "details": "Evaluated 5 compliance rules"},
-            {"step_num": 5, "phase": "5 CONSIST", "title": "Consistency Check", "details": "Cross-verified PAN vs GST state codes"}
-        ]
-    else:
-        findings = [
-            Finding(
-                rule_id=f["rule_id"],
-                status=f["status"],
-                field=f.get("value"),
-                value=f.get("value"),
-                expected=f.get("expected"),
-                evidence=[ExtractedField(**ev) for ev in f.get("evidence", [])],
-                reason=f["reason"]
-            ) for f in findings_data
-        ]
-        issues = [
-            ConsistencyIssue(
-                check_id=i["check_id"],
-                verdict=i["verdict"],
-                left=i["left"],
-                right=i["right"],
-                reason=i["reason"]
-            ) for i in issues_data
-        ]
-
-    steps = []
-    for s in raw_steps:
-        if isinstance(s, dict):
-            steps.append(StepTrace(
-                run_id=run_id,
-                step_num=s.get("step_num", 1),
-                phase=s.get("phase", ""),
-                title=s.get("title", ""),
-                details=s.get("details", "")
-            ))
+            findings = evaluate_rulebook(rulebook, all_extracted_fields)
+            issues = evaluate_consistency(rulebook, all_extracted_fields)
+            raw_steps = [
+                {"step_num": 1, "phase": "1 INGEST", "title": "Load Rulebook", "details": "Loaded sample tender rulebook"},
+                {"step_num": 2, "phase": "2 PARSE", "title": "Parsed Documents", "details": "Parsed bidder certificates"},
+                {"step_num": 3, "phase": "3 EXTRACT", "title": "Regex Extract", "details": "Extracted Pan, GST, Experience fields"},
+                {"step_num": 4, "phase": "4 EVALUATE", "title": "Rule Finding", "details": "Evaluated 5 compliance rules"},
+                {"step_num": 5, "phase": "5 CONSIST", "title": "Consistency Check", "details": "Cross-verified PAN vs GST state codes"}
+            ]
         else:
-            steps.append(s)
+            findings = [
+                Finding(
+                    rule_id=f["rule_id"],
+                    status=f["status"],
+                    field=f.get("value"),
+                    value=f.get("value"),
+                    expected=f.get("expected"),
+                    evidence=[ExtractedField(**ev) for ev in f.get("evidence", [])],
+                    reason=f["reason"]
+                ) for f in findings_data
+            ]
+            issues = [
+                ConsistencyIssue(
+                    check_id=i["check_id"],
+                    verdict=i["verdict"],
+                    left=i["left"],
+                    right=i["right"],
+                    reason=i["reason"]
+                ) for i in issues_data
+            ]
 
-    html_content = render_report_html(run_info, rulebook, findings, issues, steps, signature)
-    return HTMLResponse(html_content)
+        steps = []
+        for s in raw_steps:
+            if isinstance(s, dict):
+                steps.append(StepTrace(
+                    run_id=run_id,
+                    step_num=s.get("step_num", 1),
+                    phase=s.get("phase", ""),
+                    title=s.get("title", ""),
+                    details=s.get("details", "")
+                ))
+            else:
+                steps.append(s)
+
+        html_content = render_report_html(run_info, rulebook, findings, issues, steps, signature)
+        return HTMLResponse(html_content)
+    except Exception as e:
+        return HTMLResponse(content=f"<pre>REPORT RENDER ERROR: {str(e)}\n\nTRACEBACK:\n{traceback.format_exc()}</pre>", status_code=500)
 
 def sign_run_report(request: Request, run_id: str, officer: str, designation: str, user: str):
     db = get_db()
