@@ -1,7 +1,10 @@
+import os
 import json
 import uuid
+import hashlib
 import urllib.parse
 import traceback
+import yaml
 from pathlib import Path
 from typing import List, Optional, Any, Dict
 from datetime import datetime
@@ -44,6 +47,39 @@ def get_db() -> DataStore:
     return _db_instance
 
 async def get_form_data(request: Request) -> Dict[str, Any]:
+    content_type = request.headers.get("content-type", "").lower()
+    if "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            res = {}
+            for k, v in form.items():
+                if k in res:
+                    if isinstance(res[k], list):
+                        res[k].append(v)
+                    else:
+                        res[k] = [res[k], v]
+                else:
+                    res[k] = v
+            return res
+        except Exception:
+            pass
+
+    try:
+        form = await request.form()
+        if form:
+            res = {}
+            for k, v in form.items():
+                if k in res:
+                    if isinstance(res[k], list):
+                        res[k].append(v)
+                    else:
+                        res[k] = [res[k], v]
+                else:
+                    res[k] = v
+            return res
+    except Exception:
+        pass
+
     try:
         body = await request.body()
         if body:
@@ -53,13 +89,6 @@ async def get_form_data(request: Request) -> Dict[str, Any]:
                 for k, v in parsed.items():
                     res[k] = v[0] if len(v) == 1 else v
                 return res
-    except Exception:
-        pass
-
-    try:
-        form = await request.form()
-        if form:
-            return dict(form)
     except Exception:
         pass
     
@@ -113,9 +142,39 @@ def rulebook_draft_page(request: Request, user: str):
 
 async def create_rulebook_draft(request: Request, tender_id: str, tender_name: str, file: Any, user: str):
     try:
+        fn = getattr(file, 'filename', '') or 'tender.pdf'
         content = await file.read() if hasattr(file, 'read') else b""
-        temp_path, doc_sha = save_and_hash_upload(f"draft_{uuid.uuid4().hex[:6]}", getattr(file, 'filename', 'tender.pdf'), content)
         
+        if fn.endswith('.yaml') or fn.endswith('.yml'):
+            try:
+                yaml_obj = yaml.safe_load(content.decode('utf-8'))
+                meta = yaml_obj.get("meta", {})
+                t_id = tender_id or meta.get("tender_id", "TENDER-001")
+                t_name = tender_name or meta.get("name", "Custom Tender")
+                b_date = meta.get("bid_date", "2026-08-01")
+                
+                draft_dict = {
+                    "meta": {
+                        "tender_id": t_id,
+                        "name": t_name,
+                        "version": 1,
+                        "bid_date": b_date,
+                        "source_doc_sha": hashlib.sha256(content).hexdigest()
+                    },
+                    "fields": yaml_obj.get("fields", []),
+                    "rules": yaml_obj.get("rules", []),
+                    "consistency": yaml_obj.get("consistency", [])
+                }
+                template = jinja_env.get_template("rulebook_draft.html")
+                return HTMLResponse(template.render(
+                    user=user,
+                    draft=draft_dict,
+                    draft_json=json.dumps(draft_dict)
+                ))
+            except Exception:
+                pass
+
+        temp_path, doc_sha = save_and_hash_upload(f"draft_{uuid.uuid4().hex[:6]}", fn, content)
         draft_dict = generate_fallback_draft(tender_id, tender_name, doc_sha)
         template = jinja_env.get_template("rulebook_draft.html")
         return HTMLResponse(template.render(
@@ -169,9 +228,13 @@ async def execute_new_run(request: Request, tender_name: str, rulebook_source: s
         else:
             yaml_content = db.get_rulebook_yaml(rulebook_source)
             if not yaml_content:
-                seed_path = BASE_DIR.parent / "rulebooks" / "sample_tender.yaml"
-                rulebook = load_rulebook(str(seed_path))
-                rulebook_sha = "sample_tender_sha256"
+                try:
+                    rulebook = load_rulebook(rulebook_source)
+                    rulebook_sha = hashlib.sha256(rulebook_source.encode("utf-8")).hexdigest()[:16]
+                except Exception:
+                    seed_path = BASE_DIR.parent / "rulebooks" / "sample_tender.yaml"
+                    rulebook = load_rulebook(str(seed_path))
+                    rulebook_sha = "sample_tender_sha256"
             else:
                 rulebook = load_rulebook(yaml_content)
                 rulebook_sha = rulebook_source
