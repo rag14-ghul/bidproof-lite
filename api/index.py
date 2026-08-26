@@ -7,8 +7,10 @@ if root_dir not in sys.path:
 
 os.environ["DB_PATH"] = "/tmp/bidproof.db"
 
-from app.main import app
+try:
+    from seed.make_docs import generate_seed_docs
+    generate_seed_docs(output_dir="/tmp/seed/docs")
+except Exception:
+    pass
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "app": "BidProof-Lite"}
+from app.main import app
