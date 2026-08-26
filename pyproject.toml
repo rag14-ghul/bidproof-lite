@@ -7,4 +7,4 @@ name = "bidproof-lite"
 version = "1.0.0"
 
 [tool.vercel]
-entrypoint = "main.py"
+entrypoint = "main:app"
