@@ -1,11 +1,8 @@
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from jinja2 import Environment, FileSystemLoader
 
 from app.models import Rulebook, Finding, ConsistencyIssue, StepTrace, Signature
-
-templates_dir = Path("app") / "templates"
-jinja_env = Environment(loader=FileSystemLoader(str(templates_dir)))
+from app.templates_inline import jinja_env
 
 def render_report_html(
     run_info: Dict[str, Any],
