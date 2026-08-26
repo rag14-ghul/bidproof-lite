@@ -28,17 +28,14 @@ app = FastAPI(title=settings.APP_NAME)
 
 @app.middleware("http")
 async def vercel_path_rewrite_middleware(request: Request, call_next):
-    raw_path = request.scope.get("path", "")
-    matched_path = request.headers.get("x-matched-path")
-    if matched_path:
-        request.scope["path"] = matched_path
-    elif raw_path.startswith("/api/index.py"):
-        suffix = raw_path[13:]
-        request.scope["path"] = suffix if suffix else "/"
-    elif raw_path.startswith("/api/index"):
-        suffix = raw_path[10:]
-        request.scope["path"] = suffix if suffix else "/"
+    original_uri = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or request.scope.get("path", "")
     
+    if original_uri.startswith("/api/index.py"):
+        original_uri = original_uri[13:] or "/"
+    elif original_uri.startswith("/api/index"):
+        original_uri = original_uri[10:] or "/"
+        
+    request.scope["path"] = original_uri if original_uri.startswith("/") else "/" + original_uri
     response = await call_next(request)
     return response
 
