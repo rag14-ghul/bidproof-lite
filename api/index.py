@@ -1,5 +1,8 @@
 import os
 import sys
+import traceback
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if root_dir not in sys.path:
@@ -8,9 +11,11 @@ if root_dir not in sys.path:
 os.environ["DB_PATH"] = "/tmp/bidproof.db"
 
 try:
-    from seed.make_docs import generate_seed_docs
-    generate_seed_docs(output_dir="/tmp/seed/docs")
-except Exception:
-    pass
+    from app.main import app
+except Exception as e:
+    tb = traceback.format_exc()
+    app = FastAPI()
 
-from app.main import app
+    @app.get("/{full_path:path}")
+    def show_error(full_path: str):
+        return JSONResponse(status_code=500, content={"error": str(e), "traceback": tb})
