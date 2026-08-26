@@ -53,12 +53,12 @@ def login_action(request: Request, username: str, password: str):
         return login_page(request, error="Invalid username or password")
     
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(key="bidproof_user", value=username, httponly=True)
+    response.set_cookie(key="bidproof_user", value=username, path="/", httponly=True)
     return response
 
 def logout_action(request: Request):
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-    response.delete_cookie(key="bidproof_user")
+    response.delete_cookie(key="bidproof_user", path="/")
     return response
 
 def dashboard_page(request: Request, user: str):
