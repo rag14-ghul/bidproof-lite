@@ -333,65 +333,57 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
     db.insert_signature(run_id, officer, designation)
     return RedirectResponse(url=f"/runs/{run_id}", status_code=status.HTTP_303_SEE_OTHER)
 
-@app.get("/")
-@app.get("/login")
-def login_page_route(request: Request):
+@app.api_route("/", methods=["GET", "POST"])
+@app.api_route("/login", methods=["GET", "POST"])
+async def login_route(request: Request):
+    if request.method == "POST":
+        form = await get_form_data(request)
+        return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
     user = get_current_user(request)
     if user:
         return RedirectResponse(url="/dashboard")
     return login_page(request)
 
-@app.post("/login")
-async def login_action_route(request: Request):
-    form = await get_form_data(request)
-    return login_action(request, username=str(form.get("username", "")), password=str(form.get("password", "")))
-
-@app.get("/logout")
-def logout_action_route(request: Request):
+@app.api_route("/logout", methods=["GET", "POST"])
+def logout_route(request: Request):
     return logout_action(request)
 
-@app.get("/dashboard")
-def dashboard_page_route(request: Request):
+@app.api_route("/dashboard", methods=["GET", "POST"])
+def dashboard_route(request: Request):
     user = get_current_user(request) or "officer"
     return dashboard_page(request, user=user)
 
-@app.get("/rulebook/draft")
-def rulebook_draft_page_route(request: Request):
+@app.api_route("/rulebook/draft", methods=["GET", "POST"])
+async def rulebook_draft_route(request: Request):
     user = get_current_user(request) or "officer"
+    if request.method == "POST":
+        form = await get_form_data(request)
+        file = form.get("file")
+        return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
     return rulebook_draft_page(request, user=user)
 
-@app.post("/rulebook/draft")
-async def create_rulebook_draft_route(request: Request):
-    user = get_current_user(request) or "officer"
-    form = await get_form_data(request)
-    file = form.get("file")
-    return await create_rulebook_draft(request, tender_id=str(form.get("tender_id", "")), tender_name=str(form.get("tender_name", "")), file=file, user=user)
-
-@app.post("/rulebook/freeze")
+@app.api_route("/rulebook/freeze", methods=["GET", "POST"])
 async def freeze_rulebook_route(request: Request):
     user = get_current_user(request) or "officer"
     form = await get_form_data(request)
     return freeze_rulebook_action(request, draft_json=str(form.get("draft_json", "")), user=user)
 
-@app.get("/runs/new")
-def new_run_page_route(request: Request):
+@app.api_route("/runs/new", methods=["GET", "POST"])
+async def new_run_route(request: Request):
     user = get_current_user(request) or "officer"
+    if request.method == "POST":
+        form = await get_form_data(request)
+        files = form.get("files")
+        file_list = files if isinstance(files, list) else ([files] if files else [])
+        return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=file_list, user=user)
     return new_run_page(request, user=user)
 
-@app.post("/runs/new")
-async def execute_new_run_route(request: Request):
-    user = get_current_user(request) or "officer"
-    form = await get_form_data(request)
-    files = form.get("files")
-    file_list = files if isinstance(files, list) else ([files] if files else [])
-    return await execute_new_run(request, tender_name=str(form.get("tender_name", "")), rulebook_source=str(form.get("rulebook_source", "")), files=file_list, user=user)
-
-@app.get("/runs/{run_id}")
-def get_run_report_route(request: Request, run_id: str):
+@app.api_route("/runs/{run_id}", methods=["GET", "POST"])
+def run_report_route(request: Request, run_id: str):
     user = get_current_user(request) or "officer"
     return get_run_report(request, run_id=run_id, user=user)
 
-@app.post("/runs/{run_id}/sign")
+@app.api_route("/runs/{run_id}/sign", methods=["GET", "POST"])
 async def sign_run_report_route(request: Request, run_id: str):
     user = get_current_user(request) or "officer"
     form = await get_form_data(request)
