@@ -65,6 +65,32 @@ async def get_form_data(request: Request) -> Dict[str, Any]:
     
     return {}
 
+def get_clean_request_path(request: Request, full_path: str = ""):
+    uri = request.headers.get("x-forwarded-uri")
+    if uri:
+        clean = uri.split("?")[0].strip("/")
+        if clean and not clean.startswith("api/index"):
+            return clean
+
+    invoke_path = request.headers.get("x-invoke-path")
+    if invoke_path:
+        clean = invoke_path.split("?")[0].strip("/")
+        if clean and not clean.startswith("api/index"):
+            return clean
+
+    if full_path:
+        clean = full_path.split("?")[0].strip("/")
+        if clean and not clean.startswith("api/index"):
+            return clean
+
+    scope_path = request.scope.get("path", "")
+    if scope_path:
+        clean = scope_path.split("?")[0].strip("/")
+        if clean and not clean.startswith("api/index"):
+            return clean
+
+    return ""
+
 def login_page(request: Request, error: Optional[str] = None):
     template = jinja_env.get_template("login.html")
     return HTMLResponse(template.render(error=error))
@@ -323,15 +349,13 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def vercel_universal_router(request: Request, full_path: str = ""):
     try:
-        raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-invoke-path") or request.headers.get("x-matched-path") or request.scope.get("path") or full_path or "/"
-        clean_path = raw_path.split("?")[0].replace("/api/index.py", "").replace("api/index.py", "").replace("/api/index", "").replace("api/index", "").strip("/")
+        clean_path = get_clean_request_path(request, full_path)
 
         if clean_path == "debug":
             info = {
                 "headers": dict(request.headers),
                 "cookies": request.cookies,
                 "scope_path": request.scope.get("path"),
-                "raw_path": raw_path,
                 "clean_path": clean_path
             }
             return HTMLResponse(content=f"<pre>{json.dumps(info, indent=2)}</pre>")
