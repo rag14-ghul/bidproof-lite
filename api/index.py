@@ -1,11 +1,19 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+import os
+import sys
 
-app = FastAPI()
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
-@app.get("/")
-@app.get("/login")
-def root():
-    return HTMLResponse("<h1>BidProof-Lite Live</h1><p>FastAPI Serverless running on Vercel!</p>")
+os.environ["DB_PATH"] = "/tmp/bidproof.db"
 
-handler = app
+try:
+    from seed.make_docs import generate_seed_docs
+    generate_seed_docs(output_dir="/tmp/seed/docs")
+except Exception:
+    pass
+
+from mangum import Mangum
+from app.main import app
+
+handler = Mangum(app, api_gateway_base_path=None)
