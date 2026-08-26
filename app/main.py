@@ -274,15 +274,14 @@ def sign_run_report(request: Request, run_id: str, officer: str, designation: st
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def vercel_universal_router(request: Request, full_path: str = ""):
     try:
-        raw_path = request.headers.get("x-forwarded-uri") or request.headers.get("x-matched-path") or request.scope.get("path") or full_path or "/"
-        clean_path = raw_path.replace("/api/index.py", "").replace("/api/index", "").replace("api/index.py", "").replace("api/index", "").strip("/")
+        clean_path = (full_path or "").strip("/")
 
         if clean_path == "debug":
             info = {
                 "headers": dict(request.headers),
                 "cookies": request.cookies,
                 "scope_path": request.scope.get("path"),
-                "raw_path": raw_path,
+                "full_path": full_path,
                 "clean_path": clean_path
             }
             return HTMLResponse(content=f"<pre>{json.dumps(info, indent=2)}</pre>")
